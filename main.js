@@ -61,7 +61,29 @@ const createTwitchAlertWindow = () => {
 	win.setAlwaysOnTop(true, 'screen-saver');
 };
 
+const createEmoteWallWindow = () => {
+	const win = new BrowserWindow({
+		transparent: true,
+		frame: false,
+		width: 2560,
+		height: 1110,
+		y: -25,
+		x: 0,
+		titleBarStyle: 'hidden',
+		titleBarOverlay: false,
+		webPreferences: {
+			nodeIntegration: true,
+		},
+	});
+
+	win.loadFile('./EmoteWall.html');
+
+	win.setIgnoreMouseEvents(true, { forward: true });
+	win.setAlwaysOnTop(true, 'screen-saver');
+};
+
 app.whenReady().then(() => {
 	createChatWindow();
 	createTwitchAlertWindow();
+	createEmoteWallWindow();
 });
