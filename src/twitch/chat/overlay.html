@@ -1,0 +1,309 @@
+<!-- overlay.html -->
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Full Screen Desktop Overlay</title>
+		<!-- Ensure your preload script is linked here, ideally before other scripts -->
+		<script src="preload.js"></script>
+		<!-- Include Three.js library from CDN -->
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+		<!-- Include Cannon.js (physics engine) library from CDN -->
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+		<style>
+			/* Base styles for the HTML and body to ensure full-screen transparent background */
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				width: 100%;
+				height: 100%;
+				overflow: hidden; /* Prevent scrollbars */
+				background-color: transparent; /* Ensures the window background is fully transparent */
+			}
+
+			/* Styles for the Three.js canvas */
+			canvas {
+				display: block; /* Remove extra space below canvas */
+				position: absolute;
+				top: 0;
+				left: 0;
+				/* Ensure the canvas covers the entire window */
+				width: 100%;
+				height: 100%;
+				/* Crucial: Allows mouse clicks to pass through the canvas to windows underneath */
+				pointer-events: none;
+			}
+		</style>
+	</head>
+	<body>
+		<!-- The canvas where the 3D scene will be rendered by Three.js -->
+		<canvas id="three-canvas"></canvas>
+
+		<script>
+			console.log('[overlay.html] Renderer script started.');
+			let scene, camera, renderer;
+			let groundMesh; // Three.js mesh for the ground
+			let world, groundBody; // Cannon.js world and body for the ground
+
+			// Arrays to hold multiple sphere meshes and bodies
+			const sphereMeshes = [];
+			const sphereBodies = [];
+
+			const textureLoader = new THREE.TextureLoader();
+
+			/**
+			 * Adds a new sphere (Three.js mesh and Cannon.js body) to the scene.
+			 * @param {object} config - Configuration object for the sphere.
+			 * @param {number} config.radius - Radius of the sphere.
+			 * @param {number} config.mass - Mass of the sphere.
+			 * @param {object} config.initialPosition - {x, y, z} initial position.
+			 * @param {number} config.linearDamping - Damping for water effect.
+			 * @param {string} config.textureUrl - URL of the texture image.
+			 */
+			function addSphereToScene(config) {
+				console.log(`[overlay.html] addSphereToScene called for: ${config.id}`);
+				const sphereGeometry = new THREE.SphereGeometry(config.radius, 32, 32);
+
+				// Load texture for the Three.js sphere mesh
+				textureLoader.load(
+					config.textureUrl,
+					// On load callback
+					texture => {
+						const sphereMaterial = new THREE.MeshStandardMaterial({
+							map: texture,
+						});
+						const sphereMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
+						scene.add(sphereMesh);
+						sphereMeshes.push(sphereMesh);
+						console.log(
+							`[overlay.html] Sphere ${config.id} mesh with texture added to scene.`,
+						);
+
+						// Create Cannon.js sphere body
+						const sphereBody = new CANNON.Body({
+							mass: config.mass,
+							shape: new CANNON.Sphere(config.radius),
+							material: world.defaultMaterial, // Use the world's default material
+							linearDamping: config.linearDamping,
+						});
+						sphereBody.position.set(
+							config.initialPosition.x,
+							config.initialPosition.y,
+							config.initialPosition.z,
+						);
+						world.addBody(sphereBody);
+						sphereBodies.push(sphereBody);
+						console.log(
+							`[overlay.html] Sphere ${config.id} physics body added to world.`,
+						);
+
+						// Initial sync of Three.js mesh to Cannon.js body
+						sphereMesh.position.copy(sphereBody.position);
+						sphereMesh.quaternion.copy(sphereBody.quaternion);
+					},
+					// On progress callback
+					undefined,
+					// On error callback
+					err => {
+						console.error(
+							`[overlay.html] An error occurred loading texture for sphere ${config.id}:`,
+							err,
+						);
+						// Fallback to a basic color material if texture fails to load
+						const sphereMaterial = new THREE.MeshStandardMaterial({
+							color: 0x808080,
+						}); // Grey fallback
+						const sphereMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
+						scene.add(sphereMesh);
+						sphereMeshes.push(sphereMesh);
+
+						// Create Cannon.js sphere body even if texture fails
+						const sphereBody = new CANNON.Body({
+							mass: config.mass,
+							shape: new CANNON.Sphere(config.radius),
+							material: world.defaultMaterial,
+							linearDamping: config.linearDamping,
+						});
+						sphereBody.position.set(
+							config.initialPosition.x,
+							config.initialPosition.y,
+							config.initialPosition.z,
+						);
+						world.addBody(sphereBody);
+						sphereBodies.push(sphereBody);
+						sphereMesh.position.copy(sphereBody.position);
+						sphereMesh.quaternion.copy(sphereBody.quaternion);
+					},
+				);
+			}
+
+			/**
+			 * Initializes the Three.js scene, camera, renderer, and Cannon.js world.
+			 */
+			function init() {
+				console.log(
+					'[overlay.html] init() called. Setting up Three.js and Cannon.js.',
+				);
+				// --- Three.js Setup ---
+				scene = new THREE.Scene();
+
+				// Define the visible width in world units. This is arbitrary but sets the scale.
+				// For example, if viewWidth = 10, then 10 units will be visible across the screen width.
+				const viewWidth = 10;
+				const aspectRatio = window.innerWidth / window.innerHeight;
+				const viewHeight = viewWidth / aspectRatio;
+
+				// OrthographicCamera( left, right, top, bottom, near, far )
+				// We want the bottom of the view to align with y=0 (the ground plane)
+				camera = new THREE.OrthographicCamera(
+					-viewWidth / 2, // left
+					viewWidth / 2, // right
+					viewHeight, // top (since bottom is 0, total height is viewHeight)
+					0, // bottom (aligned with the ground plane)
+					0.1, // near clipping plane
+					1000, // far clipping plane
+				);
+
+				// Position the camera. Its Y position should be half the visible height from the bottom (y=0).
+				// Its Z position determines clipping, not perspective.
+				const cameraZDistance = 5; // Keep camera at a distance along Z for clipping
+				camera.position.set(0, viewHeight / 2, cameraZDistance);
+				camera.lookAt(0, 0, 0); // Point camera towards the origin (where the ground is)
+
+				renderer = new THREE.WebGLRenderer({
+					canvas: document.getElementById('three-canvas'),
+					alpha: true,
+					antialias: true,
+				});
+				renderer.setSize(window.innerWidth, window.innerHeight);
+				renderer.setClearColor(0x000000, 0); // Fully transparent background
+
+				// Lights
+				const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+				scene.add(ambientLight);
+				const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+				directionalLight.position.set(5, 10, 7);
+				scene.add(directionalLight);
+
+				// --- Cannon.js Setup ---
+				world = new CANNON.World();
+				world.gravity.set(0, -9.82, 0); // Set gravity (Y-axis is up/down)
+				world.broadphase = new CANNON.SAPBroadphase(world); // Improve collision detection performance
+
+				// Create a material for the ground and spheres for basic physics interactions
+				// Store this on the world for easy access in addSphereToScene
+				world.defaultMaterial = new CANNON.Material('default');
+				const defaultContactMaterial = new CANNON.ContactMaterial(
+					world.defaultMaterial,
+					world.defaultMaterial,
+					{
+						friction: 0.5,
+						restitution: 0.3, // Bounciness (lower for water-like effect)
+					},
+				);
+				world.addContactMaterial(defaultContactMaterial);
+
+				// --- Ground Plane (Three.js Mesh and Cannon.js Body) ---
+				// Make ground larger to catch all spheres and extend beyond visible area
+				const groundGeometry = new THREE.PlaneGeometry(
+					viewWidth * 2,
+					viewHeight * 2,
+				);
+				const groundMaterialThree = new THREE.MeshStandardMaterial({
+					color: 0x888888,
+					side: THREE.DoubleSide,
+					transparent: true,
+					opacity: 0.0,
+				}); // Make ground invisible
+				groundMesh = new THREE.Mesh(groundGeometry, groundMaterialThree);
+				groundMesh.rotation.x = -Math.PI / 2; // Rotate to lie flat on the XZ plane
+				scene.add(groundMesh);
+
+				const groundShape = new CANNON.Plane();
+				groundBody = new CANNON.Body({
+					mass: 0,
+					material: world.defaultMaterial,
+				}); // Mass 0 makes it static
+				groundBody.addShape(groundShape);
+				groundBody.quaternion.setFromAxisAngle(
+					new CANNON.Vec3(1, 0, 0),
+					-Math.PI / 2,
+				); // Rotate to match Three.js plane
+				world.addBody(groundBody);
+
+				// Handle window resizing
+				window.addEventListener('resize', onWindowResize, false);
+
+				// Start the animation loop
+				animate();
+				console.log('[overlay.html] init() finished. Animation loop started.');
+			}
+
+			/**
+			 * Handles window resizing to update camera parameters and renderer size.
+			 */
+			function onWindowResize() {
+				const viewWidth = 10; // Keep the same view width
+				const aspectRatio = window.innerWidth / window.innerHeight;
+				const viewHeight = viewWidth / aspectRatio;
+
+				// Update orthographic camera parameters
+				camera.left = -viewWidth / 2;
+				camera.right = viewWidth / 2;
+				camera.top = viewHeight;
+				camera.bottom = 0; // Keep bottom at y=0
+
+				// Reposition camera Y to keep y=0 at the bottom of the view
+				camera.position.y = viewHeight / 2;
+
+				camera.updateProjectionMatrix();
+				renderer.setSize(window.innerWidth, window.innerHeight);
+			}
+
+			/**
+			 * Animation loop for the 3D scene and physics simulation.
+			 */
+			function animate() {
+				requestAnimationFrame(animate);
+
+				// Update the physics world
+				const fixedTimeStep = 1 / 60; // seconds
+				world.step(fixedTimeStep);
+
+				// Synchronize each Three.js mesh with its corresponding Cannon.js body
+				for (let i = 0; i < sphereMeshes.length; i++) {
+					if (sphereBodies[i] && sphereMeshes[i]) {
+						sphereMeshes[i].position.copy(sphereBodies[i].position);
+						sphereMeshes[i].quaternion.copy(sphereBodies[i].quaternion);
+					}
+				}
+
+				renderer.render(scene, camera);
+			}
+
+			// Initialize everything when the window content is loaded
+			window.onload = function () {
+				console.log('[overlay.html] window.onload fired.');
+				init();
+
+				// Listen for 'add-marble' events from the main process
+				if (window.electronAPI && world) {
+					window.electronAPI.onAddMarble(marbleConfig => {
+						console.log(
+							'[overlay.html] Received "add-marble" event via electronAPI. Adding marble:',
+							marbleConfig.id,
+						);
+
+						addSphereToScene(marbleConfig);
+					});
+				} else {
+					console.error(
+						'[overlay.html] electronAPI or world not available when trying to set up onAddMarble listener.',
+					);
+				}
+			};
+		</script>
+	</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Twitch Electron Auth</title>
+		<script src="https://cdn.tailwindcss.com"></script>
+		<style>
+			body {
+				font-family: 'Inter', sans-serif;
+				background-color: #1a1a1a;
+				color: #e0e0e0;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				min-height: 100vh;
+				margin: 0;
+			}
+			.container {
+				background-color: #2a2a2a;
+				padding: 2.5rem;
+				border-radius: 0.75rem;
+				box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+					0 4px 6px -2px rgba(0, 0, 0, 0.05);
+				text-align: center;
+				max-width: 90%;
+				width: 400px;
+			}
+			h1 {
+				font-size: 1.875rem; /* text-3xl */
+				font-weight: 700; /* font-bold */
+				margin-bottom: 1.5rem;
+				color: #9147ff; /* Twitch purple */
+			}
+			button {
+				background-color: #9147ff; /* Twitch purple */
+				color: white;
+				padding: 0.75rem 1.5rem;
+				border-radius: 0.5rem;
+				font-weight: 600;
+				transition: background-color 0.3s ease;
+				cursor: pointer;
+				border: none;
+				outline: none;
+				width: 100%;
+				max-width: 250px;
+				margin-top: 1rem;
+			}
+			button:hover {
+				background-color: #772ce8;
+			}
+			#statusMessage {
+				margin-top: 1.5rem;
+				font-size: 1rem;
+				color: #e0e0e0;
+			}
+			.status-success {
+				color: #4caf50; /* Green */
+			}
+			.status-error {
+				color: #f44336; /* Red */
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<h1>Twitch Electron Auth</h1>
+			<p>
+				Authenticate your Electron app with Twitch using the Authorization Code
+				Grant Flow.
+			</p>
+			<button id="loginButton">Login with Twitch</button>
+			<p id="statusMessage" class="mt-4 text-lg"></p>
+		</div>
+
+		<script>
+			// renderer.js (inline for simplicity, but can be a separate file)
+			document.addEventListener('DOMContentLoaded', () => {
+				const loginButton = document.getElementById('loginButton');
+				const statusMessage = document.getElementById('statusMessage');
+
+				// Function to update status message
+				const updateStatus = (message, isError = false) => {
+					statusMessage.textContent = message;
+					statusMessage.className = `mt-4 text-lg ${
+						isError ? 'status-error' : 'status-success'
+					}`;
+				};
+
+				// Initial status check
+				window.electronAPI
+					.getAuthStatus()
+					.then(status => {
+						if (status.isAuthenticated) {
+							updateStatus(`Authenticated as ${status.userName}.`);
+							loginButton.style.display = 'none'; // Hide login button if already authenticated
+						} else {
+							updateStatus('Please log in to Twitch.');
+						}
+					})
+					.catch(error => {
+						updateStatus(`Error checking auth status: ${error.message}`, true);
+					});
+
+				// Listen for auth status updates from the main process
+				window.electronAPI.onAuthStatus(status => {
+					if (status.success) {
+						updateStatus(status.message);
+						if (status.message.includes('Successfully authenticated')) {
+							// Optionally, refresh UI or navigate after successful auth
+							window.electronAPI.getAuthStatus().then(currentStatus => {
+								if (currentStatus.isAuthenticated) {
+									updateStatus(`Authenticated as ${currentStatus.userName}.`);
+									loginButton.style.display = 'none';
+								}
+							});
+						}
+					} else {
+						updateStatus(status.message, true);
+					}
+				});
+
+				// Handle login button click
+				loginButton.addEventListener('click', async () => {
+					updateStatus('Initiating Twitch login...');
+					const result = await window.electronAPI.twitchLogin();
+					if (!result.success) {
+						updateStatus(result.message, true);
+					} else {
+						updateStatus(result.message);
+					}
+				});
+			});
+		</script>
+	</body>
+</html>

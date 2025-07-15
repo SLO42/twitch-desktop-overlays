@@ -2,14 +2,24 @@
 	"name": "chat-app",
 	"version": "1.0.0",
 	"description": "app for getting chat and formatting it for a desktop overlay or browser source",
-	"main": "main.js",
+	"main": "src/main.js",
+	"type": "module",
 	"scripts": {
-		"start": "electron .",
+		"start": "electron --env-file=.env .",
 		"test": "echo \"Error: no test specified\" && exit 1"
 	},
 	"author": "Samuel Oliveira",
 	"license": "ISC",
 	"devDependencies": {
-		"electron": "^37.2.0"
+		"electron": "^37.2.1"
+	},
+	"dependencies": {
+		"@twurple/api": "^7.3.0",
+		"@twurple/auth": "^7.3.0",
+		"@twurple/chat": "^7.3.0",
+		"@twurple/eventsub-ws": "^7.3.0",
+		"dotenv": "^17.2.0",
+		"express": "^5.1.0",
+		"pg": "^8.16.3"
 	}
 }
