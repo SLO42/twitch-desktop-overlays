@@ -34,6 +34,7 @@ export const createCustomChatOverlayWindow = () => {
 
 	// win.simpleFullScreen = true; // Enable simple fullscreen mode
 	win.setFullScreen(true);
+	win.setSkipTaskbar(false); // Hide from taskbar
 
 	win.on('closed', () => {
 		win = null; // Clear the reference when the window is closed

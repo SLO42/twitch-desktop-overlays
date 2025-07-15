@@ -46,12 +46,38 @@
 			let scene, camera, renderer;
 			let groundMesh; // Three.js mesh for the ground
 			let world, groundBody; // Cannon.js world and body for the ground
+			let leftWallBody, rightWallBody; // Global references for side walls
+
+			const activeMarbles = new Map(); // Stores { id: { mesh: THREE.Mesh, body: CANNON.Body } }
 
 			// Arrays to hold multiple sphere meshes and bodies
 			const sphereMeshes = [];
 			const sphereBodies = [];
 
 			const textureLoader = new THREE.TextureLoader();
+
+			// --- Mouse Interaction Variables ---
+			let lastMouseX = 0;
+			let lastMouseY = 0;
+			let mouseWorldPosition = new THREE.Vector3();
+			const MOUSE_REPEL_RADIUS = 0.5; // Marbles within this distance (world units) will be repelled
+			const MOUSE_REPEL_STRENGTH = 0.1; // Adjust this value to control how strong the repulsion is
+
+			function removeSphereById(id) {
+				const marble = activeMarbles.get(id);
+				if (marble) {
+					console.log(`[overlay.html] Removing existing marble with ID: ${id}`);
+					scene.remove(marble.mesh);
+					marble.mesh.geometry.dispose(); // Clean up Three.js geometry
+					if (marble.mesh.material.map) {
+						marble.mesh.material.map.dispose(); // Dispose texture
+					}
+					marble.mesh.material.dispose(); // Clean up Three.js material
+
+					world.remove(marble.body);
+					activeMarbles.delete(id);
+				}
+			}
 
 			/**
 			 * Adds a new sphere (Three.js mesh and Cannon.js body) to the scene.
@@ -64,6 +90,11 @@
 			 */
 			function addSphereToScene(config) {
 				console.log(`[overlay.html] addSphereToScene called for: ${config.id}`);
+
+				if (activeMarbles.has(config.id)) {
+					removeSphereById(config.id);
+				}
+
 				const sphereGeometry = new THREE.SphereGeometry(config.radius, 32, 32);
 
 				// Load texture for the Three.js sphere mesh
@@ -94,6 +125,12 @@
 							config.initialPosition.z,
 						);
 						world.addBody(sphereBody);
+
+						activeMarbles.set(config.id, {
+							mesh: sphereMesh,
+							body: sphereBody,
+						});
+
 						sphereBodies.push(sphereBody);
 						console.log(
 							`[overlay.html] Sphere ${config.id} physics body added to world.`,
@@ -132,6 +169,11 @@
 							config.initialPosition.z,
 						);
 						world.addBody(sphereBody);
+
+						activeMarbles.set(config.id, {
+							mesh: sphereMesh,
+							body: sphereBody,
+						});
 						sphereBodies.push(sphereBody);
 						sphereMesh.position.copy(sphereBody.position);
 						sphereMesh.quaternion.copy(sphereBody.quaternion);
@@ -283,6 +325,54 @@
 				renderer.render(scene, camera);
 			}
 
+			/**
+			 * Handles mouse movement to apply repulsion force to marbles.
+			 * @param {MouseEvent} event
+			 */
+			function onMouseMove(event) {
+				// Convert mouse pixel coordinates to world coordinates
+				// Normalize mouse coordinates to -1 to +1 range
+				const mouseNDC_X = (event.clientX / window.innerWidth) * 2 - 1;
+				const mouseNDC_Y = -(event.clientY / window.innerHeight) * 2 + 1; // Y is inverted
+
+				// Calculate world coordinates based on orthographic camera view
+				const worldX =
+					camera.left + ((mouseNDC_X + 1) / 2) * (camera.right - camera.left);
+				const worldY =
+					camera.bottom + ((mouseNDC_Y + 1) / 2) * (camera.top - camera.bottom);
+
+				// Set mouseWorldPosition. Z can be arbitrary, as repulsion is mainly 2D
+				mouseWorldPosition.set(worldX, worldY, 0); // Set Z to 0 or a small value
+
+				// Apply repulsion to all active sphere bodies
+				for (const { body } of activeMarbles.values()) {
+					if (body.mass > 0) {
+						// Only apply to dynamic bodies
+						// Calculate vector from mouse to marble
+						const repelDirection = new CANNON.Vec3();
+						body.position.vsub(mouseWorldPosition, repelDirection);
+
+						const distance = repelDirection.length();
+
+						if (distance < MOUSE_REPEL_RADIUS && distance > 0) {
+							// Avoid division by zero if distance is 0
+							// Normalize the direction vector
+							repelDirection.normalize();
+
+							// Calculate impulse magnitude: stronger when closer, fades to 0 at MOUSE_REPEL_RADIUS
+							const impulseMagnitude =
+								MOUSE_REPEL_STRENGTH * (1 - distance / MOUSE_REPEL_RADIUS);
+
+							// Apply impulse
+							body.applyImpulse(
+								repelDirection.scale(impulseMagnitude),
+								body.position,
+							);
+						}
+					}
+				}
+			}
+
 			// Initialize everything when the window content is loaded
 			window.onload = function () {
 				console.log('[overlay.html] window.onload fired.');
@@ -303,6 +393,9 @@
 						'[overlay.html] electronAPI or world not available when trying to set up onAddMarble listener.',
 					);
 				}
+
+				window.addEventListener('mousemove', onMouseMove);
+				console.log('[overlay.html] Mouse movement listener added.');
 			};
 		</script>
 	</body>
